@@ -1,0 +1,366 @@
+{
+  "name": "Dio Assistente",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Clientes",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "71a5a61a-40e1-41c1-9f2e-7356c2bfe977",
+      "name": "Webhook",
+      "webhookId": "d6260142-8bca-42ca-a3f7-88e1a05f6b88"
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/dsakura/dio-lab-assistente-investimentos-rpa-n8n/refs/heads/main/docs/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "58187e68-a510-4f28-8aa0-1c3f35501d1b",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        -144
+      ],
+      "id": "b1e204e2-efa3-4fc1-a784-13bada832f36",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n  const cols = line.split(\",\").map(c => c.trim());\n  const obj = {};\n  headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n\n  // normaliza minimo para numero\n  obj.minimo = Number(String(obj.minimo).replace(/[^\\d]/g, \"\")) || 0;\n\n  return obj;\n});\n\nreturn [{ json: { investimentos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        0
+      ],
+      "id": "4518e816-5bd8-4a62-ac68-1f29b80daf8a",
+      "name": "Tratamento do csv http"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o primeiro (e único) item da entrada que contém todas as listas\nconst inputData = $input.all()[0].json;\n\n// Extrai as listas de clientes e investimentos\nconst clientes = inputData.body.clientes || [];\nconst investimentos = inputData.investimentos || [];\n\nconst resultadoFinal = [];\n\nfor (let i = 0; i < clientes.length; i++) {\n    const cliente = clientes[i];\n    const nome = cliente.nome || \"Cliente\";\n    const email = cliente.email;\n    const perfil = cliente.perfil;\n    const saldoTexto = cliente.saldo || \"R$ 0,00\";\n\n    // Converte saldo \"R$ 12.500,00\" para o número matemático 12500.00\n    const saldoNumerico = Number(saldoTexto.replace(/[^\\d,]/g, \"\").replace(\",\", \".\"));\n\n    // Filtra os investimentos que batem com o perfil do cliente E que cabem no saldo\n    const produtosValidos = investimentos.filter(inv => {\n        return inv.perfil === perfil && saldoNumerico >= inv.minimo;\n    });\n\n    // Monta a mensagem\n    let mensagem = \"Olá, \" + nome + \"!\\n\\n\";\n    mensagem += \"Analisamos o seu perfil investidor (\" + perfil + \") e o seu saldo atual de \" + saldoTexto + \".\\n\";\n\n    if (produtosValidos.length > 0) {\n        mensagem += \"Baseado nisso, separamos as seguintes oportunidades ideais para você:\\n\\n\";\n\n        for (let j = 0; j < produtosValidos.length; j++) {\n            const prod = produtosValidos[j];\n            mensagem += \"🔹 \" + prod.produto + \"\\n\";\n            mensagem += \"   Rentabilidade: \" + prod.rentabilidade + \"\\n\";\n            mensagem += \"   Aplicação Mínima: R$ \" + prod.minimo + \",00\\n\\n\";\n        }\n\n        mensagem += \"Qual destas opções faz mais sentido para seus objetivos hoje?\";\n    } else {\n        mensagem += \"No momento, os produtos do seu perfil exigem um aporte inicial maior do que o seu saldo atual. Continue poupando, logo teremos ótimas opções!\\n\";\n    }\n\n    // Adiciona o cliente processado à lista de saída\n    resultadoFinal.push({\n        json: {\n            nome: nome,\n            email: email,\n            perfil: perfil,\n            mensagem_recomendacao: mensagem\n        }\n    });\n}\n\nreturn resultadoFinal;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -16
+      ],
+      "id": "72f8b9f7-4bac-455f-b78c-6333a4315732",
+      "name": "Gera Mensagem Recomendacao"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Mantendo a função parseBRL\nfunction parseBRL(valor) {\n  if (!valor) return 0;\n  const s = String(valor)\n    .replace(\"R$\", \"\")\n    .replace(/\\./g, \"\")\n    .replace(\",\", \".\")\n    .replace(/[^\\d.]/g, \"\")\n    .trim();\n  const n = Number(s);\n  return Number.isFinite(n) ? n : 0;\n}\n\n// Retorna UM ITEM por cliente\nconst out = items.map(item => {\n  const c = item.json;\n  \n  return {\n    json: {\n      email_to: String(c.email || \"\").trim(),\n      nome: String(c.nome || \"\").trim(),\n      perfil: c.perfil,\n\n      mensagem_base: c.mensagem_recomendacao || \"\",\n      \n      // Regras de formatação\n      copy_rules: {\n        idioma: \"pt-BR\",\n        tom: \"amigável e profissional\",\n        tamanho: \"curto (4-6 linhas)\",\n        evitar: [\"promessas de ganho\", \"garantias\", \"linguagem agressiva\"]\n      }\n    }\n  };\n});\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -16
+      ],
+      "id": "09b809c3-d762-4b6a-a636-b15d6df264f9",
+      "name": "normalizar para IA"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3.5-flash-lite",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3.5-flash-lite"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Escreva um e-mail para o cliente abaixo utilizando o idioma {{ $json.copy_rules.idioma }}, com um tom {{ $json.copy_rules.tom }} e tamanho {{ $json.copy_rules.tamanho }}. \nAtente-se para evitar estritamente: {{ $json.copy_rules.evitar.join(', ') }}.\n\nReescreva e humanize as informações abaixo para soar como um consultor financeiro enviando um e-mail:\n\nCliente:\nNome: {{ $json.nome }}\nPerfil: {{ $json.perfil }}\n\nMensagem Base (Recomendações sugeridas):\n{{ $json.mensagem_base }}\n\nRetorne APENAS JSON com:\n{\n  \"subject\": \"...\",\n  \"text_body\": \"...\",\n  \"html_body\": \"...\"\n}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        -144
+      ],
+      "id": "91b3c89b-470c-42fa-a5b9-f86517dd56bb",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "UmgnpH8XsnlSYIb3",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst resultados = [];\n\nconst nomeDoNoAnterior = \"normalizar para IA\"; \n\nfor (let i = 0; i < items.length; i++) {\n    const item = items[i].json;\n    \n    // 1. Extrair o texto bruto devolvido pela IA\n    const textoIA = item.content.parts[0].text;\n    \n    // 2. Limpar a marcação Markdown (```json e ```) para sobrar apenas o objeto\n    const jsonLimpo = textoIA.replace(/```json/gi, \"\").replace(/```/gi, \"\").trim();\n    \n    // 3. Transformar o texto em um objeto JSON utilizável\n    let dadosEmail = {};\n    try {\n        dadosEmail = JSON.parse(jsonLimpo);\n    } catch (erro) {\n        // Fallback de segurança caso a IA não retorne um JSON perfeito\n        dadosEmail = {\n            subject: \"Sua recomendação de investimentos\",\n            text_body: jsonLimpo,\n            html_body: \"<p>\" + jsonLimpo + \"</p>\"\n        };\n    }\n\n    // 4. Resgatar as variáveis de envio usando o índice [i] da execução\n    let emailDestino = \"\";\n    let nomeCliente = \"\";\n    try {\n        const itemOriginal = $items(nomeDoNoAnterior)[i].json;\n        emailDestino = itemOriginal.email_to;\n        nomeCliente = itemOriginal.nome;\n    } catch (e) {\n        emailDestino = \"erro_ao_buscar_email@verifique.o.nome.do.no\";\n    }\n\n    // 5. Estruturar a saída final padronizada para os nós de envio de e-mail (Gmail/Outlook)\n    resultados.push({\n        json: {\n            email_to: emailDestino,\n            nome: nomeCliente,\n            subject: dadosEmail.subject,\n            text_body: dadosEmail.text_body,\n            html_body: dadosEmail.html_body\n        }\n    });\n}\n\nreturn resultados;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        -16
+      ],
+      "id": "83402e5d-e2bd-4558-9dfc-27dde9ae7659",
+      "name": "normaliza para o gmail"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ffe3b32b-48f1-48dc-98bb-04a64aded176",
+              "leftValue": "={{ $json.email_to }}",
+              "rightValue": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1920,
+        -16
+      ],
+      "id": "1e6bcea3-cbfd-44a2-9ac7-ec13032fcd13",
+      "name": "SE o email é verdadeiro"
+    },
+    {
+      "parameters": {
+        "jsCode": "const falhas = $input.all();\n\nif (falhas.length === 0) {\n    return [];\n}\n\nlet listaHTML = \"<ul>\";\nfor (let i = 0; i < falhas.length; i++) {\n    const cliente = falhas[i].json;\n    listaHTML += \"<li><b>\" + cliente.nome + \":</b> \" + cliente.email_to + \"</li>\";\n}\nlistaHTML += \"</ul>\";\n\nlet mensagemFinal = \"<p>Olá!</p>\";\nmensagemFinal += \"<p>A automação encontrou <b>\" + falhas.length + \"</b> cliente(s) com endereços de e-mail em formato inválido.</p>\";\nmensagemFinal += \"<p>Aqui está a lista para você tentar contato de outra forma:</p>\";\nmensagemFinal += listaHTML;\n\nconst assuntoFinal = \"Atenção: \" + falhas.length + \" e-mails inválidos bloqueados\";\n\nreturn [{\n    json: {\n        assunto: assuntoFinal,\n        corpo_email: mensagemFinal\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        96
+      ],
+      "id": "ad333fb8-c722-44d1-a910-6119dfad7f79",
+      "name": "Agrupa emails",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email_to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html_body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2144,
+        -128
+      ],
+      "id": "d1625aaa-6785-4509-bd4f-faa56b0af280",
+      "name": "Mensagem para Clientes",
+      "webhookId": "2a12eef7-574d-4ca1-8f16-78c3908a44f0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "FseeygvrPQmnF19J",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "dan.nachmanowicz@gmail.com",
+        "subject": "={{ $json.assunto }}",
+        "message": "={{ $json.corpo_email }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2368,
+        96
+      ],
+      "id": "c4a0685d-1fd2-4211-b2c5-482e4b7dc9ae",
+      "name": "Mensagem Falhas",
+      "webhookId": "24bb4300-acc8-41ec-9f68-a201c03644fe",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "FseeygvrPQmnF19J",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Tratamento do csv http",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Gera Mensagem Recomendacao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tratamento do csv http": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Gera Mensagem Recomendacao": {
+      "main": [
+        [
+          {
+            "node": "normalizar para IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normalizar para IA": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "normaliza para o gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normaliza para o gmail": {
+      "main": [
+        [
+          {
+            "node": "SE o email é verdadeiro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SE o email é verdadeiro": {
+      "main": [
+        [
+          {
+            "node": "Mensagem para Clientes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Agrupa emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agrupa emails": {
+      "main": [
+        [
+          {
+            "node": "Mensagem Falhas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "417e88e8-9834-498c-8190-43233390d138",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d6f1f2211122e839cc0aff94fbcfe4d6f6b2869d456f57a3155f73d2cea4b0f6"
+  },
+  "nodeGroups": [],
+  "id": "BWolVjInjWTXiQrM",
+  "tags": []
+}
