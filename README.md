@@ -1,5 +1,27 @@
 # Criando um Assistente de Investimentos com RPA e IA Generativa
 
+## Vídeo Demonstrativo
+
+https://github.com/user-attachments/assets/0ceeb878-87bd-401f-881c-8d3f3bf520c9
+
+## Decisões Técnicas e Arquitetura do Workflow
+O fluxo no n8n teve como foco resiliência, eficiência no processamento de dados e integração segura com modelos de linguagem (LLMs). As principais decisões técnicas adotadas na construção desta automação incluem:
+
+1. **Ingestão e Tratamento de Dados (ETL Programático)**
+O acionamento via Webhook permite integração agnóstica com sistemas externos (como Python/Google Colab). O consumo do catálogo de investimentos em formato CSV é realizado via requisição HTTP, seguido de um nó de código (JavaScript) dedicado ao parsing. O tratamento de strings monetárias (remoção de prefixos e conversão de vírgula para ponto via Expressões Regulares) converte os valores para numéricos de ponto flutuante, garantindo a exatidão das operações lógicas e matemáticas subsequentes.
+
+2. **Isolamento das Regras de Negócio**
+A validação cruzada entre o saldo do cliente e o investimento mínimo exigido por produto é executada estritamente via código, antes da chamada à Inteligência Artificial. Essa decisão arquitetônica reduz o payload e o consumo de tokens na API do LLM, além de evitar alucinações, transferindo para a IA apenas o papel de copywriting, e não o de motor de regras.
+
+3. **Integração Estruturada e Engenharia de Prompt (Google Gemini)**
+Para a etapa de humanização, o workflow prepara um objeto JSON intermediário contendo "copy rules" explícitas (idioma, tom, tamanho e termos proibidos). O modelo é instruído via System Prompt a respeitar essas restrições e retornar exclusivamente uma estrutura JSON predefinida (subject, text_body, html_body).
+
+4. **Tratamento de Retorno (Sanitização de Dados da IA)**
+Como modelos de linguagem podem retornar blocos de código com marcações Markdown (ex: ```json), foi implementado um nó de código subsequente com funções de substituição (replace) e blocos try-catch. Isso garante que o JSON seja convertido em um objeto válido do n8n de forma tolerante a falhas, além de cruzar e restaurar os identificadores de destino (e-mail do cliente) que não foram enviados ao LLM por questões de privacidade e redução de escopo.
+
+5. **Validação de Strings e Padrão de Agrupamento (Batching) para Erros**
+Antes do disparo transacional via integração com Gmail, um nó condicional valida a integridade morfológica dos e-mails utilizando Regex. Para a rota de exceções (e-mails inválidos), foi implementado um padrão de agrupamento. Em vez de disparar um e-mail de alerta para o administrador a cada falha (o que causaria flood na caixa de entrada), o script condensa todos os clientes rejeitados daquela execução em um único array e envia apenas um relatório HTML consolidado.
+
 ## Descrição
 
 Aprenda na prática como criar um fluxo de automação inteligente combinando técnicas de RPA (Robotic Process Automation) com workflows de IA no N8N.
@@ -124,17 +146,17 @@ Conecte o Agente de IA do N8N a um modelo como Gemini ou GPT para:
 
 ### MVP (Mínimo Viável)
 
-- [ ] Repositório forkado com o workflow N8N implementado
-- [ ] Workflow N8N exportado (`n8n/workflow.json`) com mensagens estáticas
-- [ ] Script de RPA integrado ao Webhook do N8N
-- [ ] Print ou vídeo demonstrando o fluxo funcionando de ponta a ponta
+- [x] Repositório forkado com o workflow N8N implementado
+- [x] Workflow N8N exportado (`n8n/workflow.json`) com mensagens estáticas
+- [x] Script de RPA integrado ao Webhook do N8N
+- [x] Print ou vídeo demonstrando o fluxo funcionando de ponta a ponta
 
 ### Desafio Completo
 
-- [ ] Todos os itens do MVP
-- [ ] Integração com Agente de IA no N8N
-- [ ] Mensagens geradas dinamicamente via LLM
-- [ ] Documentação explicando as decisões técnicas
+- [x] Todos os itens do MVP
+- [x] Integração com Agente de IA no N8N
+- [x] Mensagens geradas dinamicamente via LLM
+- [x] Documentação explicando as decisões técnicas
 
 ## Estrutura do Repositório
 
